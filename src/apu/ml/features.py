@@ -2,20 +2,27 @@
 Ingeniería de features para el predictor de residuo physics-informed.
 
 Features del residuo (t_real - t_fisica) por tramo:
-  - hora_del_dia (cíclica: sin/cos)
-  - es_cambio_de_guardia (bool: ventana de 15 min alrededor del cambio)
-  - turno (mañana / tarde / noche)
-  - clima (lluvia, neblina, seco)
-  - congestion_tramo (camiones/km en el tramo en los últimos 5 min)
-  - horas_motor_camion (proxy de desgaste del vehículo)
-  - id_tramo (categorical encoded)
-
-Decisiones validadas en Sun et al. (2018):
-  - Predecir por tramo, no por ruta completa → +11.82% precisión
-  - Incluir variables meteorológicas → +5.13%
-  - Random Forest supera a kNN y SVM
-
-Se implementa en v2.
+  - hora_fraccion  : hora del día normalizada (0–1)
+  - es_guardia     : 0 = mañana, 1 = tarde, 2 = noche
+  - tramo_enc      : hash del tramo_id mod 16 (encoding compacto)
+  - congestion     : estimación de ocupación de la vía (0–1)
 """
 
-# TODO v2: class FeatureExtractor
+import math
+
+
+def extraer(t_min: float, tramo_id: str, n_camiones_activos: int,
+            n_camiones_total: int) -> list[float]:
+    """
+    Retorna un vector de features [hora_frac, guardia, tramo_enc, congestion].
+
+    t_min              : tiempo simulado actual en minutos
+    tramo_id           : cadena "origen_destino"
+    n_camiones_activos : camiones viajando en este instante
+    n_camiones_total   : flota total
+    """
+    hora_frac = (t_min % (24 * 60)) / (24 * 60)   # 0..1 dentro del día
+    turno_num = int((t_min % (24 * 60)) / 480) % 3  # 0/1/2 (turnos 8 h)
+    tramo_enc = hash(tramo_id) % 16 / 15.0          # 0..1
+    congestion = n_camiones_activos / max(1, n_camiones_total)
+    return [hora_frac, float(turno_num) / 2.0, tramo_enc, congestion]

@@ -17,5 +17,9 @@ class Pala:
     tiempo_activa_min: float = 0.0   # minutos con camión cargando
     n_cargas: int = 0
 
+    # Estado operacional — se modifica por GestorEventos en v2
+    operativa: bool = True
+    tiempo_fuera_servicio_min: float = 0.0   # acumulado para métricas
+
     # Recurso SimPy; se asigna desde el engine para evitar dependencia circular
     resource: object = field(default=None, repr=False)

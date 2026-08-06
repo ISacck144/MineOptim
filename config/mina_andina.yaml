@@ -134,3 +134,30 @@ planta:
   ley_cu_min: 0.40
   ley_cu_max: 0.90
   ley_as_max: 0.10
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuración v2 — escenario andino
+# ─────────────────────────────────────────────────────────────────────────────
+v2:
+  snapshot_intervalo_min: 10
+
+  despacho:
+    intervalo_pl_min: 30
+
+  fisica:
+    ruido_viaje_sigma: 0.10    # mayor variabilidad por lluvia y caminos blandos
+
+  ml:
+    activado: true
+    burn_in_min: 120
+    threshold_degradacion: 0.12   # umbral más sensible en condiciones difíciles
+
+  eventos:
+    programados:
+      - tipo: falla_pala
+        pala_id: pala_2
+        tiempo_min: 300.0
+        duracion_min: 90.0
+
+    aleatorios:
+      activado: false

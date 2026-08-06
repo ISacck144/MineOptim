@@ -119,7 +119,7 @@ tiempos_viaje_min:
 # Parámetros del despachador APU (activos desde v1)
 # ─────────────────────────────────────────────────────────────────────────────
 despacho:
-  lambda_acoplamiento: 0.3    # peso del término de desviación del plan en c_ij
+  lambda_acoplamiento: 0.5    # peso del término de desviación del plan en c_ij
   intervalo_pl_min: 30        # con qué frecuencia (min simulados) se re-resuelve la PL
 
 # Parámetros de mezcla para la chancadora (activos en la PL desde v2)
@@ -127,3 +127,31 @@ planta:
   ley_cu_min: 0.40    # % Cu mínimo en la mezcla (bajo este valor, la chancadora rechaza)
   ley_cu_max: 0.90    # % Cu máximo (exceso de Cu fino daña equipos de flotación)
   ley_as_max: 0.10    # % As máximo (límite ambiental y de proceso)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuración v2: eventos, física estocástica y ML
+# ─────────────────────────────────────────────────────────────────────────────
+v2:
+  snapshot_intervalo_min: 10   # cada cuántos min se guarda el estado (gráfica temporal)
+
+  despacho:
+    intervalo_pl_min: 30       # re-resolver PL cada 30 min simulados
+
+  fisica:
+    ruido_viaje_sigma: 0.08    # desv. estándar del ruido relativo en tiempos de viaje
+
+  ml:
+    activado: true
+    burn_in_min: 120           # tiempo de calentamiento antes de entrenar el RF
+    threshold_degradacion: 0.15
+
+  eventos:
+    programados:
+      # Falla de demostración: pala_2 cae en el minuto 300 (t=5h) por 90 min
+      - tipo: falla_pala
+        pala_id: pala_2
+        tiempo_min: 300.0
+        duracion_min: 90.0
+
+    aleatorios:
+      activado: false           # desactivado en la corrida base para reproducibilidad

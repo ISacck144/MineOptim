@@ -28,3 +28,6 @@ class Camion:
     tiempo_espera_total_min: float = 0.0
     tiempo_viaje_total_min: float = 0.0
     ciclos_completados: int = 0
+
+    # Estado de falla (v2)
+    en_falla: bool = False

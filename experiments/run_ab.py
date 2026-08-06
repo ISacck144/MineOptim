@@ -7,6 +7,8 @@ Uso:
   PYTHONPATH=src python -m experiments.run_ab --version v0
   PYTHONPATH=src python -m experiments.run_ab --version v1
   PYTHONPATH=src python -m experiments.run_ab --version v1 --config mina_andina
+  PYTHONPATH=src python -m experiments.run_ab --version v2
+  PYTHONPATH=src python -m experiments.run_ab --version v2 --config mina_andina
 """
 
 import argparse
@@ -40,7 +42,7 @@ def _correr_dispatcher(config: dict, dispatcher, duracion: float) -> dict:
     return calcular_kpis(engine, t_elapsed)
 
 
-def _guardar_png(resultados: list[dict], ruta: str, config_nombre: str):
+def _guardar_png(resultados: list[dict], ruta: str, config_nombre: str, version: str = 'v1'):
     import matplotlib
     matplotlib.use('Agg')   # sin ventana gráfica (funciona sin display)
     import matplotlib.pyplot as plt
@@ -55,7 +57,7 @@ def _guardar_png(resultados: list[dict], ruta: str, config_nombre: str):
     }
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 8))
-    fig.suptitle(f'APU v1 — Comparativa de despachadores\n{config_nombre}', fontsize=13)
+    fig.suptitle(f'APU {version} — Comparativa de despachadores\n{config_nombre}', fontsize=13)
     colores = ['#d62728', '#ff7f0e', '#2ca02c', '#1f77b4', '#9467bd', '#8c564b']
 
     for ax, (titulo, valores) in zip(axes.flat, metricas.items()):
@@ -173,6 +175,177 @@ def correr_v1(config: dict, duracion: float, seed: int, config_nombre: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# v2
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _correr_dispatcher_v2(config: dict, dispatcher, duracion: float,
+                           v2_cfg: dict, seed: int) -> tuple[dict, list]:
+    """
+    Corre una simulación v2 con eventos, LP y ML.
+    Retorna (kpis, snapshots).
+    """
+    from apu.sim.events import GestorEventos
+    from apu.dispatch.lp_flow import LPFlowPlanner
+    from apu.ml.residual_model import ResidualForestModel
+    import numpy as np
+
+    config_planta = config.get('planta', {})
+    lp_cfg        = v2_cfg.get('despacho', config.get('despacho', {}))
+    ml_cfg        = v2_cfg.get('ml', {})
+
+    gestor_ev = GestorEventos(v2_cfg, rng=np.random.default_rng(seed + 1))
+    lp_plan   = LPFlowPlanner(config_planta)
+    ml_model  = ResidualForestModel(
+        burn_in_samples=max(10, int(ml_cfg.get('burn_in_min', 120) / 10)),
+        threshold=ml_cfg.get('threshold_degradacion', 0.15),
+        seed=seed,
+    ) if ml_cfg.get('activado', True) else None
+
+    engine = MotorSimulacion(config, dispatcher)
+    t_elapsed = engine.correr(
+        duracion,
+        v2_config     = v2_cfg,
+        gestor_eventos= gestor_ev,
+        lp_planner    = lp_plan,
+        ml_model      = ml_model,
+        seed          = seed,
+    )
+    kpis = calcular_kpis(engine, t_elapsed)
+    kpis['eventos_log'] = [e for e in gestor_ev.log if 'falla' in e['tipo']]
+
+    if ml_model and ml_model.alertas:
+        kpis['ml_alertas'] = ml_model.alertas
+        print(ml_model.resumen_alertas())
+
+    return kpis, engine.snapshots
+
+
+def _guardar_png_serie_temporal(series: dict, t_falla_min: float, ruta: str,
+                                 config_nombre: str):
+    """
+    Genera la gráfica temporal de ton_fino acumulado.
+    La línea vertical roja marca el instante de la falla de pala.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    colores = ['#d62728', '#ff7f0e', '#2ca02c', '#1f77b4', '#9467bd', '#8c564b']
+    grosor  = {'APU_Hungaro': 2.8}
+
+    fig, ax = plt.subplots(figsize=(13, 6))
+
+    for (nombre, snaps), color in zip(series.items(), colores):
+        if not snaps:
+            continue
+        ts = [s['t_min'] for s in snaps]
+        ys = [s['ton_fino'] for s in snaps]
+        lw = grosor.get(nombre, 1.5)
+        ax.plot(ts, ys, label=nombre, color=color, linewidth=lw,
+                linestyle='--' if nombre == 'APU_Hungaro' else '-')
+
+    ax.axvline(x=t_falla_min, color='red', linestyle=':', linewidth=1.8,
+               label=f'Falla pala_2 (t={t_falla_min:.0f} min)')
+    ax.axvspan(t_falla_min, t_falla_min + 90, alpha=0.08, color='red')
+
+    ax.set_xlabel('Tiempo simulado (min)', fontsize=11)
+    ax.set_ylabel('Ton. fino Cu acumulado (t)', fontsize=11)
+    ax.set_title(
+        f'APU v2 — Producción acumulada de cobre fino\n{config_nombre}\n'
+        f'La brecha se ensancha después de la falla de pala_2 (t=300 min)',
+        fontsize=11,
+    )
+    ax.legend(fontsize=9, loc='upper left')
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(ruta, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"\n  PNG guardado en: {ruta}")
+
+
+def correr_v2(config: dict, duracion: float, seed: int, config_nombre: str):
+    v2_cfg = config.get('v2', {})
+    asignaciones_fg = _fixed_group_asignaciones(config)
+
+    despachadores = [
+        ("Random",        Random(seed=seed)),
+        ("Nearest",       Nearest()),
+        ("ShortestQueue", ShortestQueue()),
+        ("SPTF",          SPTF()),
+        ("FixedGroup",    FixedGroup(asignaciones_fg)),
+        ("APU_Hungaro",   HungarianDispatcher(
+            lambda_acoplamiento=config.get('despacho', {}).get('lambda_acoplamiento', 0.5)
+        )),
+    ]
+
+    # Instante de la falla programada (para la línea vertical del gráfico)
+    t_falla = 300.0
+    for ev in v2_cfg.get('eventos', {}).get('programados', []):
+        if ev.get('tipo') == 'falla_pala':
+            t_falla = ev.get('tiempo_min', 300.0)
+            break
+
+    print(f"\n  Corriendo {len(despachadores)} despachadores con eventos v2 "
+          f"({duracion:.0f} h simuladas, semilla {seed})…")
+    print(f"  Falla programada: pala_2 en t={t_falla:.0f} min\n")
+
+    resultados = []
+    series_temporales = {}
+
+    for nombre, dispatcher in despachadores:
+        kpis, snaps = _correr_dispatcher_v2(config, dispatcher, duracion, v2_cfg, seed)
+        resultados.append(kpis)
+        series_temporales[nombre] = snaps
+
+        n_ev = len(kpis.get('eventos_log', []))
+        print(f"  [{nombre:<16}] "
+              f"chancadora={kpis['ton_chancadora']:>9,.0f} t  "
+              f"fino={kpis['ton_fino']:>7,.2f} t  "
+              f"espera={kpis['tiempo_espera_total_min']:>7,.1f} min  "
+              f"MF={kpis['match_factor']:.3f}  "
+              f"ADL={kpis['adl_ms']:.4f} ms  "
+              f"eventos={n_ev}")
+
+    # ── Tabla comparativa ─────────────────────────────────────────────────────
+    print()
+    print("═" * 72)
+    print("  TABLA COMPARATIVA — APU v2 (con eventos aleatorios)")
+    print("═" * 72)
+    print(f"  Config: {config_nombre}  |  Duración: {duracion:.0f} h  |  Semilla: {seed}")
+    print(f"  Falla pala_2 en t={t_falla:.0f} min  |  Reparación: 90 min")
+    print()
+    print(tabla_comparativa(resultados))
+    print()
+
+    apu = next(r for r in resultados if r['dispatcher'] == 'APU_Hungaro')
+    baselines = [r for r in resultados if r['dispatcher'] != 'APU_Hungaro']
+    mejor_bl = max(baselines, key=lambda r: r['ton_fino'])
+    delta_fino = apu['ton_fino'] - mejor_bl['ton_fino']
+    pct_fino   = delta_fino / mejor_bl['ton_fino'] * 100 if mejor_bl['ton_fino'] > 0 else 0
+    print(f"  APU vs mejor baseline en ton.fino ({mejor_bl['dispatcher']}): "
+          f"{delta_fino:+,.2f} t  ({pct_fino:+.1f}%)")
+    print("═" * 72)
+
+    dir_res = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
+
+    # ── PNG barras (misma lógica que v1) ─────────────────────────────────────
+    ruta_barras = os.path.join(dir_res,
+                               f'comparativa_v2_{config_nombre.replace(" ", "_")}.png')
+    try:
+        _guardar_png(resultados, ruta_barras, config_nombre, version='v2')
+    except ImportError:
+        print("  (matplotlib no instalado — PNG barras omitido)")
+
+    # ── PNG serie temporal ────────────────────────────────────────────────────
+    ruta_serie = os.path.join(dir_res,
+                              f'serie_temporal_v2_{config_nombre.replace(" ", "_")}.png')
+    try:
+        _guardar_png_serie_temporal(series_temporales, t_falla, ruta_serie, config_nombre)
+    except ImportError:
+        print("  (matplotlib no instalado — PNG serie temporal omitido)")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -206,6 +379,8 @@ def main():
         correr_v0(config, duracion, args.seed)
     elif args.version == 'v1':
         correr_v1(config, duracion, args.seed, config_nombre)
+    elif args.version == 'v2':
+        correr_v2(config, duracion, args.seed, config_nombre)
     else:
         print(f"\n  La versión '{args.version}' aún no está implementada.")
         sys.exit(1)

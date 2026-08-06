@@ -17,8 +17,8 @@ class EstadoMina:
         self.red_vial = red_vial
 
     def palas_operativas(self) -> list[Pala]:
-        """Retorna las palas disponibles (sin fallas). En v0 siempre son todas."""
-        return list(self.palas.values())
+        """Retorna las palas que no están en falla ni fuera de servicio."""
+        return [p for p in self.palas.values() if p.operativa]
 
     def destino_para_pala(self, pala: Pala) -> Destino:
         """
