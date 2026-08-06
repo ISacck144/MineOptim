@@ -7,7 +7,7 @@ dist/
 build/
 .env
 *.log
-experiments/results/*.png
+# Los PNG de resultados se commitean para tener la demo disponible offline
 experiments/results/*.gif
 !experiments/results/.gitkeep
 notebooks/.ipynb_checkpoints/

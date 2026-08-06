@@ -10,37 +10,43 @@ from .base import Dispatcher
 
 class ShortestQueue(Dispatcher):
     """
-    Baseline más común: asigna el camión a la pala con la cola más corta
-    (menor número de camiones esperando o cargando).
-    Miope: no considera el tiempo de viaje ni el plan global.
+    Baseline más común: la pala con la cola más corta.
+    Miope: ignora el tiempo de viaje y el plan global.
     """
 
-    def decide(self, mine_state, truck):
+    def __init__(self):
+        super().__init__()
+
+    def _decide(self, mine_state, truck):
         palas = mine_state.palas_operativas()
-        # resource.count = camiones cargando ahora; resource.queue = esperando
         return min(palas, key=lambda p: p.resource.count + len(p.resource.queue))
 
 
 class Random(Dispatcher):
     """
     Límite inferior teórico: asignación completamente aleatoria.
-    Útil para establecer la escala de mejora de los otros métodos.
+    Útil para establecer la escala de mejora de los demás métodos.
     """
 
     def __init__(self, seed: int = None):
+        super().__init__()
         self._rng = random.Random(seed)
 
-    def decide(self, mine_state, truck):
+    def _decide(self, mine_state, truck):
         return self._rng.choice(mine_state.palas_operativas())
 
 
 class Nearest(Dispatcher):
     """
-    Asigna a la pala más cercana (menor tiempo de viaje desde posición actual).
-    Minimiza el tiempo de acarreo vacío, pero ignora las colas.
+    Menor tiempo de viaje desde la posición actual del camión.
+    Minimiza el acarreo vacío, pero ignora colas y tipo de material.
+    Puede quedar atrapado en ciclos pala_desmonte ↔ botadero.
     """
 
-    def decide(self, mine_state, truck):
+    def __init__(self):
+        super().__init__()
+
+    def _decide(self, mine_state, truck):
         palas = mine_state.palas_operativas()
         return min(
             palas,
@@ -50,36 +56,39 @@ class Nearest(Dispatcher):
 
 class SPTF(Dispatcher):
     """
-    Shortest Processing Time First: asigna a la pala con menor tiempo de carga.
-    Análogo al algoritmo SJF (Shortest Job First) en scheduling de SO.
-    Maximiza el throughput si los tiempos de viaje son iguales,
-    pero ignora las colas y las distancias.
+    Shortest Processing Time First: la pala con menor tiempo de carga.
+    Análogo al algoritmo SJF en scheduling de SO.
+    Maximiza throughput de carga si los tiempos de viaje son iguales,
+    pero genera colas severas cuando todos convergen a la misma pala.
     """
 
-    def decide(self, mine_state, truck):
+    def __init__(self):
+        super().__init__()
+
+    def _decide(self, mine_state, truck):
         palas = mine_state.palas_operativas()
         return min(palas, key=lambda p: p.tiempo_carga_min)
 
 
 class FixedGroup(Dispatcher):
     """
-    Despacho por grupo fijo: cada camión está atado permanentemente a una pala.
-    Es el método que realmente se usa en operaciones con múltiples contratistas
-    (cada contratista maneja su propio grupo de camiones y su propia pala).
-    Máxima simplicidad operativa, mínima eficiencia global.
+    Camiones atados permanentemente a palas.
+    Es el método que se usa en operaciones con múltiples contratistas
+    (cada contratista maneja sus propios camiones y su propia pala).
+    Máxima simplicidad operativa, mínima adaptabilidad a eventos.
     """
 
     def __init__(self, asignaciones: dict):
+        super().__init__()
         # asignaciones: {truck_id: shovel_id}
         self._asignaciones = asignaciones
 
-    def decide(self, mine_state, truck):
+    def _decide(self, mine_state, truck):
         shovel_id = self._asignaciones.get(truck.id)
         if shovel_id and shovel_id in mine_state.palas:
             pala = mine_state.palas[shovel_id]
-            # Si la pala asignada está operativa, ir a ella
             if pala in mine_state.palas_operativas():
                 return pala
-        # Fallback: ShortestQueue (cuando la pala asignada falla — v2)
+        # Fallback cuando la pala asignada falla (activo desde v2)
         palas = mine_state.palas_operativas()
         return min(palas, key=lambda p: p.resource.count + len(p.resource.queue))

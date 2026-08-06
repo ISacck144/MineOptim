@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 
 
@@ -5,19 +6,30 @@ class Dispatcher(ABC):
     """
     Interfaz común para todos los despachadores.
 
-    decide() recibe el estado actual de la mina y el camión que acaba de
-    terminar de descargar (y por lo tanto está libre), y retorna la Pala
-    a la que debe dirigirse vacío.
-
-    La decisión sobre dónde descargar (chancadora vs botadero) la toma
-    el motor de simulación basándose en la ley del material de la pala,
-    no el despachador. Esto separa la decisión de flujo de la decisión
-    de asignación.
+    decide() envuelve _decide() con cronometraje automático.
+    Las subclases implementan _decide(), no decide().
+    Esto permite medir la ADL (Algorithm Decision Latency) sin
+    repetir código de temporización en cada implementación.
     """
 
-    @abstractmethod
+    def __init__(self):
+        self._adl_tiempos_s: list[float] = []
+
     def decide(self, mine_state, truck) -> "Pala":
+        t0 = time.perf_counter()
+        resultado = self._decide(mine_state, truck)
+        self._adl_tiempos_s.append(time.perf_counter() - t0)
+        return resultado
+
+    @abstractmethod
+    def _decide(self, mine_state, truck) -> "Pala":
         ...
+
+    def adl_promedio_ms(self) -> float:
+        """Latencia promedio de decisión en milisegundos."""
+        if not self._adl_tiempos_s:
+            return 0.0
+        return sum(self._adl_tiempos_s) / len(self._adl_tiempos_s) * 1000.0
 
     @property
     def nombre(self) -> str:
