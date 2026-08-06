@@ -43,9 +43,13 @@ simpy, numpy, pandas, scipy, scikit-learn, pulp, matplotlib, pyyaml, streamlit
 ## Estado de las versiones
 
 - **v0** ✅: SimPy funcionando, ShortestQueue, KPIs básicos
-- **v1** pendiente: 5 baselines + húngaro, Match Factor, tabla comparativa + PNG
-- **v2** pendiente: física real, eventos aleatorios, ML, PL, Streamlit
-- **v3** pendiente: Dijkstra, energía, IoT
+- **v1** ✅: 5 baselines + húngaro, Match Factor, tabla comparativa + PNG
+           APU +7.6% ton.fino vs ShortestQueue (sin eventos)
+- **v2** ✅: física estocástica, eventos (falla pala_2 t=300), ML, LP+Húngaro
+           APU +10.3% ton.fino con falla activa — brecha se ensancha durante la falla
+- **v3** ✅: Dijkstra en red vial (grafo), energía (L/t_fino), bloqueo de tramos
+           APU +13.7% (mina_base) / +14.8% (mina_andina) vs ShortestQueue
+           Dashboard Streamlit en dashboard/app.py
 
 ## Qué NO hacer
 

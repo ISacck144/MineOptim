@@ -31,3 +31,6 @@ class Camion:
 
     # Estado de falla (v2)
     en_falla: bool = False
+
+    # Acumulador de combustible (v3)
+    combustible_litros: float = 0.0

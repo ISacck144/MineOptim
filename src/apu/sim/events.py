@@ -43,6 +43,10 @@ class GestorEventos:
                 env.process(self._falla_camion_programada(
                     ev['camion_id'], ev['tiempo_min'], ev['duracion_min']
                 ))
+            elif tipo == 'bloqueo_via':
+                env.process(self._bloqueo_via_programado(
+                    ev['from'], ev['to'], ev['tiempo_min'], ev['duracion_min']
+                ))
 
         cfg_al = cfg_ev.get('aleatorios', {})
         if cfg_al.get('activado', False):
@@ -102,6 +106,19 @@ class GestorEventos:
             self._reg('recuperacion_pala', pala=pala_id)
 
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _bloqueo_via_programado(self, from_id: str, to_id: str,
+                                tiempo_min: float, duracion_min: float):
+        """Bloquea un tramo de la red vial (Dijkstra lo marcará inaccesible)."""
+        yield self._env.timeout(tiempo_min)
+        red = getattr(self._mine, 'red_vial', None)
+        if red is None or not hasattr(red, 'bloquear_tramo'):
+            return
+        red.bloquear_tramo(from_id, to_id)
+        self._reg('bloqueo_via', from_id=from_id, to_id=to_id, duracion=duracion_min)
+        yield self._env.timeout(duracion_min)
+        red.desbloquear_tramo(from_id, to_id)
+        self._reg('desbloqueo_via', from_id=from_id, to_id=to_id)
 
     def _reg(self, tipo: str, **datos):
         entrada = {'t': self._env.now, 'tipo': tipo, **datos}

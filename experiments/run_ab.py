@@ -346,6 +346,113 @@ def correr_v2(config: dict, duracion: float, seed: int, config_nombre: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# v3
+# ─────────────────────────────────────────────────────────────────────────────
+
+def correr_v3(config: dict, duracion: float, seed: int, config_nombre: str):
+    """
+    v3 = v2 + Dijkstra en la red vial + modelo de energía.
+    Si el YAML tiene 'red_vial_v3', el engine usa Dijkstra; si no, tabla plana.
+    Se hereda la sección 'v3' del YAML (que a su vez hereda eventos de v2).
+    """
+    v3_cfg = config.get('v3', config.get('v2', {}))
+    asignaciones_fg = _fixed_group_asignaciones(config)
+
+    despachadores = [
+        ("Random",        Random(seed=seed)),
+        ("Nearest",       Nearest()),
+        ("ShortestQueue", ShortestQueue()),
+        ("SPTF",          SPTF()),
+        ("FixedGroup",    FixedGroup(asignaciones_fg)),
+        ("APU_Hungaro",   HungarianDispatcher(
+            lambda_acoplamiento=config.get('despacho', {}).get('lambda_acoplamiento', 0.5)
+        )),
+    ]
+
+    t_falla = 300.0
+    for ev in v3_cfg.get('eventos', {}).get('programados', []):
+        if ev.get('tipo') == 'falla_pala':
+            t_falla = ev.get('tiempo_min', 300.0)
+            break
+
+    usa_dijkstra = 'red_vial_v3' in config
+    print(f"\n  Corriendo {len(despachadores)} despachadores v3 "
+          f"({'Dijkstra' if usa_dijkstra else 'tabla plana'}, "
+          f"{duracion:.0f} h sim., semilla {seed})…")
+    print(f"  Eventos: falla pala_2 en t={t_falla:.0f} min"
+          + (", bloqueo tramo_norte en t=420 min" if usa_dijkstra else ""))
+    print()
+
+    resultados = []
+    series_temporales = {}
+
+    for nombre, dispatcher in despachadores:
+        kpis, snaps = _correr_dispatcher_v2(config, dispatcher, duracion, v3_cfg, seed)
+        resultados.append(kpis)
+        series_temporales[nombre] = snaps
+
+        n_ev  = len(kpis.get('eventos_log', []))
+        combL = kpis.get('combustible_total_L', 0.0)
+        ef    = kpis.get('eficiencia_L_ton', float('inf'))
+        ef_s  = f"{ef:.1f}" if ef < 9999 else "—"
+        print(f"  [{nombre:<16}] "
+              f"fino={kpis['ton_fino']:>7,.2f} t  "
+              f"MF={kpis['match_factor']:.3f}  "
+              f"ADL={kpis['adl_ms']:.4f} ms  "
+              f"comb={combL:>7,.0f} L  "
+              f"ef={ef_s} L/t_fino  "
+              f"ev={n_ev}")
+
+    print()
+    print("═" * 78)
+    print("  TABLA COMPARATIVA — APU v3 (Dijkstra + energía + eventos)")
+    print("═" * 78)
+    print(f"  Config: {config_nombre}  |  Duración: {duracion:.0f} h  |  Semilla: {seed}")
+    print()
+
+    # Tabla extendida con combustible
+    enc = (f"{'Despachador':<16} {'Ton.Fino':>9} {'MF':>7} {'ADL(ms)':>8} "
+           f"{'Comb.(L)':>10} {'L/t_fino':>9}")
+    print(enc)
+    print("─" * len(enc))
+    for r in resultados:
+        ef = r.get('eficiencia_L_ton', float('inf'))
+        ef_s = f"{ef:9.1f}" if ef < 9999 else "       —  "
+        print(f"  {r['dispatcher']:<16} "
+              f"{r['ton_fino']:>9,.2f} "
+              f"{r['match_factor']:>7.3f} "
+              f"{r['adl_ms']:>8.4f} "
+              f"{r.get('combustible_total_L', 0):>10,.0f} "
+              f"{ef_s}")
+    print("═" * 78)
+
+    apu = next(r for r in resultados if r['dispatcher'] == 'APU_Hungaro')
+    baselines = [r for r in resultados if r['dispatcher'] != 'APU_Hungaro']
+    mejor_bl = max(baselines, key=lambda r: r['ton_fino'])
+    delta = apu['ton_fino'] - mejor_bl['ton_fino']
+    pct   = delta / mejor_bl['ton_fino'] * 100 if mejor_bl['ton_fino'] > 0 else 0
+    print(f"  APU vs mejor baseline en ton.fino ({mejor_bl['dispatcher']}): "
+          f"{delta:+,.2f} t  ({pct:+.1f}%)")
+    print("═" * 78)
+
+    dir_res = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
+
+    ruta_barras = os.path.join(dir_res,
+                               f'comparativa_v3_{config_nombre.replace(" ", "_")}.png')
+    try:
+        _guardar_png(resultados, ruta_barras, config_nombre, version='v3')
+    except ImportError:
+        pass
+
+    ruta_serie = os.path.join(dir_res,
+                              f'serie_temporal_v3_{config_nombre.replace(" ", "_")}.png')
+    try:
+        _guardar_png_serie_temporal(series_temporales, t_falla, ruta_serie, config_nombre)
+    except ImportError:
+        pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -381,6 +488,8 @@ def main():
         correr_v1(config, duracion, args.seed, config_nombre)
     elif args.version == 'v2':
         correr_v2(config, duracion, args.seed, config_nombre)
+    elif args.version == 'v3':
+        correr_v3(config, duracion, args.seed, config_nombre)
     else:
         print(f"\n  La versión '{args.version}' aún no está implementada.")
         sys.exit(1)

@@ -17,7 +17,7 @@ from .mine import EstadoMina
 from .truck import Camion, EstadoCamion
 from .shovel import Pala
 from .dump import Destino, TipoDestino
-from .road import RedVial
+from .road import RedVial, RedVialDijkstra, TIEMPO_INACCESIBLE
 
 
 def cargar_config(ruta_yaml: str) -> dict:
@@ -85,8 +85,22 @@ class MotorSimulacion:
             for d in cfg['destinos']
         ]
 
-        red = RedVial(cfg.get('tiempos_viaje_min', {}))
+        # v3: usar Dijkstra si hay definición de grafo; si no, tabla plana
+        if 'red_vial_v3' in cfg:
+            red = RedVialDijkstra(cfg['red_vial_v3'])
+        else:
+            red = RedVial(cfg.get('tiempos_viaje_min', {}))
         self.mine = EstadoMina(palas, camiones, destinos, red)
+
+        # Mapa de coordenadas para el dashboard (node_id → (x, y))
+        self._coord_map: dict[str, tuple[float, float]] = {}
+        for p in palas:
+            self._coord_map[p.id] = (p.pos_x, p.pos_y)
+        for d in destinos:
+            self._coord_map[d.id] = (d.pos_x, d.pos_y)
+        if isinstance(red, RedVialDijkstra):
+            for nid, n in red.nodos.items():
+                self._coord_map.setdefault(nid, (n.get('pos_x', 0), n.get('pos_y', 0)))
 
         for pala in self.mine.palas.values():
             pala.resource = simpy.Resource(self.env, capacity=1)
@@ -122,6 +136,12 @@ class MotorSimulacion:
 
             # ── 2. VIAJAR VACÍO A LA PALA ────────────────────────────────────
             t_base_vacio = self.mine.red_vial.tiempo_viaje(camion.pos_actual, pala.id)
+
+            # v3: si la ruta está bloqueada, esperar y re-despachar
+            if t_base_vacio >= TIEMPO_INACCESIBLE:
+                yield self.env.timeout(5.0)  # esperar 5 min y reintentar
+                continue
+
             t_viaje_vacio = self._aplicar_ruido(t_base_vacio)
             yield self.env.timeout(t_viaje_vacio)
             camion.pos_actual = pala.id
@@ -183,6 +203,9 @@ class MotorSimulacion:
             t_viaje_cargado = self._aplicar_ruido(t_base_cargado)
             yield self.env.timeout(t_viaje_cargado)
             camion.tiempo_viaje_total_min += t_viaje_cargado
+
+            # v3: registrar combustible
+            self._registrar_combustible(camion, t_base_vacio, t_viaje_cargado, pala)
 
             if self._ml_model is not None:
                 self._registrar_residuo(
@@ -259,6 +282,22 @@ class MotorSimulacion:
         factor = float(self._rng.normal(1.0, sigma))
         factor = max(0.5, min(2.0, factor))
         return t_base * factor
+
+    def _registrar_combustible(self, camion, t_vacio_min: float,
+                               t_cargado_min: float, pala):
+        """Acumula consumo de combustible (v3). Usa un modelo simplificado."""
+        cfg_e = (self._v2_cfg or {}).get('energia', {})
+        if not cfg_e.get('activado', False):
+            return
+        from ..physics.energy import consumo_litros
+        # Distancia estimada a partir del tiempo y velocidad de referencia
+        v_ref_kmh = cfg_e.get('velocidad_ref_kmh', 25.0)
+        dist_vacio_m   = (t_vacio_min  / 60) * v_ref_kmh * 1000
+        dist_cargado_m = (t_cargado_min / 60) * v_ref_kmh * 1000
+        pend = cfg_e.get('pendiente_ref_pct', 8.0)
+        camion.combustible_litros += consumo_litros(dist_vacio_m, 0, pend, cfg_e)
+        camion.combustible_litros += consumo_litros(dist_cargado_m, camion.capacidad_ton,
+                                                     -pend, cfg_e)
 
     def _registrar_residuo(self, tramo_id: str, t_fisica: float, t_real: float):
         """Pasa los residuos al modelo ML si está activo."""
@@ -358,6 +397,11 @@ class MotorSimulacion:
         # Palas que fallaron al menos una vez
         n_fallas = sum(1 for p in mine.palas.values() if p.tiempo_fuera_servicio_min > 0)
 
+        # v3: energía
+        combustible_total = sum(c.combustible_litros for c in mine.camiones.values())
+        from ..physics.energy import eficiencia_L_ton
+        eficiencia = eficiencia_L_ton(combustible_total, ton_fino)
+
         return {
             'duracion_sim_min'          : duracion_min,
             'ton_chancadora'            : ton_chancadora,
@@ -372,4 +416,6 @@ class MotorSimulacion:
             'utilizacion_palas'         : utilizacion_palas,
             'n_eventos_log'             : len(self.log_eventos),
             'n_fallas_palas'            : n_fallas,
+            'combustible_total_L'       : combustible_total,
+            'eficiencia_L_ton'          : eficiencia,
         }

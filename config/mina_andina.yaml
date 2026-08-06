@@ -161,3 +161,47 @@ v2:
 
     aleatorios:
       activado: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3: red vial como grafo (Dijkstra) — tiempos 18% mayores que mina_base
+#     por altitud 4100 msnm + temporada de lluvias (RR mayor)
+# ─────────────────────────────────────────────────────────────────────────────
+red_vial_v3:
+  nodos:
+    chancadora:  {pos_x: 4500, pos_y:    0}
+    botadero:    {pos_x: 3000, pos_y:  500}
+    cruce_a:     {pos_x: 1500, pos_y:  350}
+    pala_1:      {pos_x:  200, pos_y:  800}
+    pala_2:      {pos_x:  300, pos_y: 1500}
+    pala_3:      {pos_x:  500, pos_y: 2200}
+
+  aristas:
+    - {from: chancadora, to: cruce_a,  tiempo_ida_min: 8.2,  tiempo_vuelta_min: 7.7,  id: rama_principal}
+    - {from: chancadora, to: botadero, tiempo_ida_min: 3.5,  tiempo_vuelta_min: 3.5,  id: tramo_botadero}
+    - {from: cruce_a, to: pala_1, tiempo_ida_min: 3.3, tiempo_vuelta_min: 2.7, id: tramo_norte}
+    - {from: cruce_a, to: pala_2, tiempo_ida_min: 2.0, tiempo_vuelta_min: 1.6, id: tramo_central}
+    - {from: cruce_a, to: pala_3, tiempo_ida_min: 3.5, tiempo_vuelta_min: 3.0, id: tramo_sur}
+    - {from: pala_1,  to: pala_2, tiempo_ida_min: 5.0, tiempo_vuelta_min: 5.0, id: enlace_p1_p2}
+
+v3:
+  energia:
+    activado: true
+    consumo_base_L_km: 0.35    # mayor consumo en altura (aire menos denso)
+    cap_ref_ton: 227
+    velocidad_ref_kmh: 22.0    # más lento en lluvia
+    pendiente_ref_pct: 9.0
+
+  eventos:
+    programados:
+      - tipo: falla_pala
+        pala_id: pala_2
+        tiempo_min: 300.0
+        duracion_min: 90.0
+      - tipo: bloqueo_via
+        from: cruce_a
+        to: pala_1
+        tiempo_min: 420.0
+        duracion_min: 40.0
+
+    aleatorios:
+      activado: false
