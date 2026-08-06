@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Escenario BASE: nivel del mar, sin efectos de altitud.
+# Sirve como referencia neutra para comparar despachadores en condiciones ideales.
+#
+# AVISO: Todos los datos son SINTÉTICOS, generados por el simulador APU.
+# Los parámetros de equipos están calibrados con valores públicos de catálogo
+# (CAT, Komatsu). Los tiempos de viaje son representativos de distancias
+# 2–4 km con rampas 8–10%, pero no corresponden a ninguna mina real.
+# ─────────────────────────────────────────────────────────────────────────────
+
+nombre: "Mina Base (Nivel del Mar)"
+altitud_msnm: 0
+
+simulacion:
+  duracion_horas: 12
+  seed: 42
+
+palas:
+  - id: pala_1
+    ley_cu: 0.85        # % de cobre — mineral de alta ley
+    ley_as: 0.04        # % de arsénico
+    es_mineral: true    # true → va a chancadora
+    capacidad_ton_h: 5000
+    tiempo_carga_min: 4.0   # Fuente: rango típico publicado, 3–5 min
+    pos_x: 200.0
+    pos_y: 800.0
+
+  - id: pala_2
+    ley_cu: 0.55        # mineral de ley media
+    ley_as: 0.02
+    es_mineral: true
+    capacidad_ton_h: 4500
+    tiempo_carga_min: 3.5
+    pos_x: 300.0
+    pos_y: 1500.0
+
+  - id: pala_3
+    ley_cu: 0.20        # por debajo de la ley de corte (0.4%) → desmonte
+    ley_as: 0.01
+    es_mineral: false   # false → va a botadero
+    capacidad_ton_h: 4000
+    tiempo_carga_min: 4.5
+    pos_x: 500.0
+    pos_y: 2200.0
+
+camiones:
+  - id: truck_1
+    tipo: CAT793
+    capacidad_ton: 227    # Fuente: catálogo público CAT 793F
+
+  - id: truck_2
+    tipo: CAT793
+    capacidad_ton: 227
+
+  - id: truck_3
+    tipo: CAT793
+    capacidad_ton: 227
+
+  - id: truck_4
+    tipo: Komatsu930E
+    capacidad_ton: 290    # Fuente: catálogo público Komatsu 930E-4
+
+  - id: truck_5
+    tipo: Komatsu930E
+    capacidad_ton: 290
+
+destinos:
+  - id: chancadora
+    tipo: chancadora
+    pos_x: 4500.0
+    pos_y: 0.0
+    tiempo_descarga_min: 1.5
+    capacidad_ton_h: 12000    # capacidad de la chancadora primaria
+
+  - id: botadero
+    tipo: botadero
+    pos_x: 3000.0
+    pos_y: 500.0
+    tiempo_descarga_min: 1.0
+    capacidad_ton_h: .inf     # el botadero no tiene límite de capacidad
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tiempos de viaje fijos en MINUTOS (v0).
+# Representativos de distancias 2–4 km con pendiente media 8% y v ≈ 25 km/h cargado.
+# En v2 estos tiempos serán calculados por el módulo de física (rimpull + altitud).
+# ─────────────────────────────────────────────────────────────────────────────
+tiempos_viaje_min:
+  pala_1:
+    chancadora: 11.0
+    botadero: 7.5
+    pala_2: 4.0
+    pala_3: 7.0
+
+  pala_2:
+    chancadora: 9.5
+    botadero: 6.5
+    pala_1: 4.0
+    pala_3: 4.5
+
+  pala_3:
+    chancadora: 8.0
+    botadero: 5.5
+    pala_1: 7.0
+    pala_2: 4.5
+
+  chancadora:
+    pala_1: 9.5       # viaje vacío: más rápido (cuesta abajo, sin carga)
+    pala_2: 8.0
+    pala_3: 6.5
+    botadero: 3.0
+
+  botadero:
+    pala_1: 6.5
+    pala_2: 5.5
+    pala_3: 4.5
+    chancadora: 3.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Parámetros del despachador APU (activos desde v1)
+# ─────────────────────────────────────────────────────────────────────────────
+despacho:
+  lambda_acoplamiento: 0.3    # peso del término de desviación del plan en c_ij
+  intervalo_pl_min: 30        # con qué frecuencia (min simulados) se re-resuelve la PL
+
+# Parámetros de mezcla para la chancadora (activos en la PL desde v2)
+planta:
+  ley_cu_min: 0.40    # % Cu mínimo en la mezcla (bajo este valor, la chancadora rechaza)
+  ley_cu_max: 0.90    # % Cu máximo (exceso de Cu fino daña equipos de flotación)
+  ley_as_max: 0.10    # % As máximo (límite ambiental y de proceso)
